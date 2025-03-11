@@ -1,12 +1,16 @@
-use std::{fs, path::Path};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::Write as _,
+    path::PathBuf,
+};
 // use tracing::warn;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use heck::ToSnekCase;
 use tracing::info;
 use xshell::{Shell, cmd};
 
-#[derive(Debug)]
 struct YamlTest {
+    child_of: Option<String>,
     name: String,
 }
 
@@ -17,19 +21,29 @@ fn main() -> Result<()> {
     sh.change_dir("yaml-test-suite");
     cmd!(sh, "make data").run()?;
 
+    fs::remove_dir_all("tests")?;
+    fs::create_dir("tests")?;
+
     let tests = resolve_tests()?;
 
-    for YamlTest { name } in tests {
+    for YamlTest { name, child_of } in tests {
         info!("Generating test {name}");
 
-        fs::write(
-            format!("tests/{name}.rs"),
-            format!(
-                r#"
+        let mut file = if let Some(child_of) = child_of {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(format!("tests/{child_of}.rs"))?
+        } else {
+            File::create(format!("tests/{name}.rs"))?
+        };
+
+        write!(
+            file,
+            r#"
             #[test]
             fn {name}() {{ unimplemented!() }}
         "#
-            ),
         )?;
     }
 
@@ -37,37 +51,43 @@ fn main() -> Result<()> {
 }
 
 fn resolve_tests() -> Result<Vec<YamlTest>> {
-    let mut test_folders = Vec::new();
+    let mut tests = Vec::new();
 
-    for entry in fs::read_dir("yaml-test-suite/data")? {
-        let path = entry?.path();
-
-        if path.ends_with(".git") || path.ends_with("name") || path.ends_with("tags") {
-            continue;
-        }
+    for outer_entry in fs::read_dir("yaml-test-suite/data/name")? {
+        let outer_path = outer_entry?.path();
 
         let mut is_nested = false;
 
-        for entry in fs::read_dir(&path)? {
-            let path = entry?.path();
+        for entry in fs::read_dir(&outer_path)? {
+            let path: PathBuf = entry?.path();
 
             if path.is_dir() {
-                test_folders.push(path);
+                let name = fs::read_to_string(path.join("==="))?.to_snek_case();
+
+                tests.push(YamlTest {
+                    name: format!("{name}_{}", path.file_name().unwrap().to_str().unwrap()),
+                    child_of: Some(
+                        outer_path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_snek_case(),
+                    ),
+                });
+
                 is_nested = true
             }
         }
 
         if !is_nested {
-            test_folders.push(path);
+            let name = fs::read_to_string(outer_path.join("==="))?.to_snek_case();
+
+            tests.push(YamlTest {
+                name,
+                child_of: None,
+            });
         }
-    }
-
-    let mut tests = Vec::new();
-
-    for folder in test_folders {
-        let name = fs::read_to_string(folder.join("==="))?.to_snek_case();
-
-        tests.push(YamlTest { name });
     }
 
     Ok(tests)

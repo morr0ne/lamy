@@ -1,3 +1,6 @@
+[workspace]
+members = ["gen"]
+
 [package]
 name = "lamy"
 version = "0.0.1"

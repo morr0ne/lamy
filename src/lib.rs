@@ -3,6 +3,9 @@ use std::fmt;
 use serde::{Deserialize, de};
 use thiserror::Error;
 
+mod value;
+pub use value::Value;
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub fn from_bytes<'a, T>(bytes: &'a [u8]) -> Result<T>

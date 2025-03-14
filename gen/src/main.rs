@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::Write as _,
     path::PathBuf,
@@ -21,21 +22,26 @@ fn main() -> Result<()> {
     sh.change_dir("yaml-test-suite");
     cmd!(sh, "make data").run()?;
 
-    fs::remove_dir_all("tests")?;
-    fs::create_dir("tests")?;
+    fs::remove_dir_all("tests/test_suite")?;
+    fs::create_dir("tests/test_suite")?;
 
     let tests = resolve_tests()?;
+
+    let mut suite_module = HashSet::new();
 
     for YamlTest { name, child_of } in tests {
         info!("Generating test {name}");
 
         let mut file = if let Some(child_of) = child_of {
+            suite_module.insert(format!("mod {child_of};"));
+
             OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(format!("tests/{child_of}.rs"))?
+                .open(format!("tests/test_suite/{child_of}.rs"))?
         } else {
-            File::create(format!("tests/{name}.rs"))?
+            suite_module.insert(format!("mod {name};"));
+            File::create(format!("tests/test_suite/{name}.rs"))?
         };
 
         write!(
@@ -46,6 +52,11 @@ fn main() -> Result<()> {
         "#
         )?;
     }
+
+    let suite_module: String = suite_module.into_iter().collect();
+
+    fs::write("tests/test_suite/mod.rs", &suite_module)?;
+    fs::write("tests/suite.rs", "mod test_suite;")?;
 
     Ok(())
 }
